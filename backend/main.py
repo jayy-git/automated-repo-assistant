@@ -35,6 +35,7 @@ password_hasher = PasswordHash.recommended()
 
 # Define the data required for registration
 class RegisterRequest(BaseModel):
+    name: str
     email: EmailStr
     password: str
 
@@ -122,6 +123,7 @@ def register_user(user: RegisterRequest):
 
     # Save the new user in MongoDB
     result = users.insert_one({
+        "name": user.name,
         "email": email,
         "password_hash": hashed_password,
         "role": "developer"
