@@ -1,8 +1,8 @@
-# Hackloop 🚀
+# RepoGuide 🚀
 
 ### Build Together. Ship Smarter.
 
-Hackloop is a developer-focused platform designed to help developers work with code, explore projects, and collaborate more effectively.
+RepoGuide is a developer-focused platform designed to help developers work with code, explore projects, and collaborate more effectively.
 
 The project is being developed with a React frontend, a Python FastAPI backend, and MongoDB for data storage.
 
@@ -32,7 +32,7 @@ Our goal is to create a platform that makes development workflows easier and hel
 
 # 1. About the Project
 
-Hackloop is a collaborative development project created to make software development workflows easier.
+RepoGuide is a collaborative development project created to make software development workflows easier.
 
 The project currently includes a React-based login interface and a FastAPI backend with session-based authentication.
 
@@ -189,7 +189,7 @@ You can use another code editor if you prefer, but the instructions in this READ
 
 ## 4.5 Set Up MongoDB
 
-Hackloop uses MongoDB to store application data.
+RepoGuide uses MongoDB to store application data.
 
 The current backend connects to MongoDB using a connection string stored in an environment file.
 
