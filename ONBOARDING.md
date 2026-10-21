@@ -1,12 +1,8 @@
-# automated-repo-assistant- — Developer Onboarding
+# repo-guide — Developer Onboarding
 
 ## 1. Project Overview
 
-<<<<<<< HEAD
-This repository contains **38 files** identified by RepoGuide's repository scanner.
-=======
-This repository contains **41 files** identified by RepoGuide's repository scanner.
->>>>>>> e5a67bb (Add repository analysis and Q&A features)
+This repository contains **45 files** identified by RepoGuide's repository scanner.
 
 This document provides an initial overview of the repository, its technology stack, important files, and setup resources.
 
@@ -106,9 +102,12 @@ The following files provide a starting point for exploring the repository:
 
 This section identifies relationships between Python files based on their import statements.
 
+- `backend/bug_analyzer.py` imports `backend/repository_analyzer.py`
+- `backend/main.py` imports `backend/bug_analyzer.py`
 - `backend/main.py` imports `backend/repository_quality_analyzer.py`
 - `backend/onboarding_generator.py` imports `backend/documentation_validator.py`
 - `backend/onboarding_generator.py` imports `backend/repository_summary.py`
+- `backend/repository_analyzer.py` imports `backend/organization_analyzer.py`
 - `backend/repository_qa.py` imports `backend/repository_summary.py`
 - `backend/repository_quality_analyzer.py` imports `backend/quality_checks.py`
 - `backend/repository_quality_analyzer.py` imports `backend/repository_analyzer.py`
@@ -118,18 +117,20 @@ This section identifies relationships between Python files based on their import
 - `backend/repository_summary.py` imports `backend/repository_analyzer.py`
 - `backend/repository_summary.py` imports `backend/technology_detector.py`
 - `backend/technology_detector.py` imports `backend/repository_analyzer.py`
+- `backend/test_bug_analyzer.py` imports `backend/bug_analyzer.py`
 - `backend/test_code_relationship_analyzer.py` imports `backend/code_relationship_analyzer.py`
 - `backend/test_dependency_analyzer.py` imports `backend/dependency_analyzer.py`
 - `backend/test_documentation_validator.py` imports `backend/documentation_validator.py`
 - `backend/test_file_analyzer.py` imports `backend/file_analyzer.py`
 - `backend/test_onboarding_generator.py` imports `backend/onboarding_generator.py`
+- `backend/test_organization_analyzer.py` imports `backend/organization_analyzer.py`
 - `backend/test_quality_checks.py` imports `backend/quality_checks.py`
 - `backend/test_repository_analyzer.py` imports `backend/repository_analyzer.py`
 - `backend/test_repository_summary.py` imports `backend/repository_summary.py`
 - `backend/test_technology_detector.py` imports `backend/technology_detector.py`
 
-**Python files analyzed:** 22
-**Relationships detected:** 21
+**Python files analyzed:** 26
+**Relationships detected:** 26
 
 ## 7. Setup Guidance
 
