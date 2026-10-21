@@ -55,15 +55,20 @@ The project is being developed further, and additional functionality will be add
 
 The current implementation includes:
 
-- A responsive login interface.
-- A FastAPI backend.
-- User registration and login API endpoints.
-- MongoDB database connectivity.
-- Password hashing.
-- Session-based authentication.
-- A frontend built with React and Vite.
-
-Additional functionality is planned as the project develops.
+- A responsive login interface and developer workspace.
+- A FastAPI backend with repository intelligence and bug analysis endpoints.
+- User registration and login API endpoints with session-based authentication.
+- MongoDB database connectivity and password hashing.
+- **AST-Based Bug Detection & Code Improvement Engine** (`backend/bug_analyzer.py`):
+  - Detects syntax errors, mutable defaults, bare except clauses, swallowed exceptions, unmanaged open() leaks, unreachable dead code, and variable shadowing.
+  - Generates non-destructive, syntax-validated code fixes.
+  - Calculates an overall **Code Health Score (0-100)**.
+- **Developer Workspace & Code Sandbox**:
+  - Full repository scanner with severity filter pills (`Critical`, `High`, `Medium`, `Low`).
+  - Interactive Python Code Sandbox for testing snippets live.
+  - "How it's scored" expandable scoring reference guide.
+  - **Download REPORT** button for exporting comprehensive Markdown bug reports.
+- Comprehensive automated test suite (31 unit tests).
 
 ---
 
@@ -662,12 +667,16 @@ Confirm that the API documentation loads.
 
 The current backend includes these endpoints:
 
-| Method | Endpoint         | Purpose                           |
-| ------ | ---------------- | --------------------------------- |
-| GET    | `/`              | Checks whether the API is running |
-| POST   | `/auth/register` | Registers a user                  |
-| POST   | `/auth/login`    | Authenticates a user              |
-| GET    | `/auth/me`       | Checks the current session        |
+| Method | Endpoint                     | Purpose                                           |
+| ------ | ---------------------------- | ------------------------------------------------- |
+| GET    | `/`                          | Checks whether the API is running                 |
+| POST   | `/auth/register`             | Registers a user                                  |
+| POST   | `/auth/login`                | Authenticates a user                              |
+| GET    | `/auth/me`                   | Checks the current session                        |
+| POST   | `/repository/quality-check`  | Performs repository governance & documentation checks |
+| POST   | `/repository/analyze-bugs`   | Runs AST static bug analysis & health score calculation |
+| POST   | `/code/analyze-snippet`      | Analyzes a Python code snippet live on the fly    |
+| POST   | `/repository/download-report`| Exports the complete bug analysis report (Markdown) |
 
 ## Check 3: Frontend
 
