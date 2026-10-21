@@ -2,7 +2,7 @@
 
 ## 1. Project Overview
 
-This repository contains **33 files** identified by RepoGuide's repository scanner.
+This repository contains **38 files** identified by RepoGuide's repository scanner.
 
 This document provides an initial overview of the repository, its technology stack, important files, and setup resources.
 
@@ -22,7 +22,7 @@ Files excluded from Git tracking
 
 ### `backend/main.py`
 
-Possible Python backend entry point
+Backend application entry point candidate
 
 ### `backend/requirements.txt`
 
@@ -46,11 +46,11 @@ Project documentation
 
 ### `frontend/src/App.jsx`
 
-Main React application component
+Main frontend application component
 
 ### `frontend/src/main.jsx`
 
-Possible React entry point
+Frontend application entry point candidate
 
 ### `README.md`
 

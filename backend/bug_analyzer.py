@@ -678,3 +678,4 @@ if __name__ == "__main__":
             print("\nClean repository! No bugs detected.")
     except Exception as exc:
         print(f"Error scanning '{target}': {exc}")
+

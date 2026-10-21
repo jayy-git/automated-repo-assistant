@@ -318,3 +318,60 @@ def download_bug_report(request: Request, payload: RepoBugAnalysisRequest):
         "filename": f"BUG_REPORT_{results['repository_name']}.md",
         "markdown": report_md
     }
+
+
+
+@app.post("/code/analyze-snippet")
+def code_analyze_snippet(request: Request, payload: SnippetAnalysisRequest):
+    """
+    Analyzes an individual Python code snippet on the fly.
+    Protected by session authentication.
+    """
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Please log in before analyzing code snippets."
+        )
+
+    results = analyze_python_code(
+        code_string=payload.code,
+        filename=payload.filename or "snippet.py",
+        include_ai_explanations=payload.include_ai or False
+    )
+    return results
+
+
+@app.post("/repository/download-report")
+def download_bug_report(request: Request, payload: RepoBugAnalysisRequest):
+    """
+    Generates and returns the markdown report content for download.
+    Protected by session authentication.
+    """
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Please log in before downloading reports."
+        )
+
+    project_root = Path(__file__).resolve().parent.parent
+    path_candidate = Path(payload.repository_path)
+    target_path = (project_root / path_candidate).resolve() if not path_candidate.is_absolute() else path_candidate.resolve()
+
+    if not target_path.is_relative_to(project_root):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only export reports inside the project directory."
+        )
+
+    results = analyze_repository_bugs(
+        repository_path=str(target_path),
+        include_ai_explanations=payload.include_ai
+    )
+    report_md = generate_bug_report_markdown(results)
+
+    return {
+        "filename": f"BUG_REPORT_{results['repository_name']}.md",
+        "markdown": report_md
+    }
