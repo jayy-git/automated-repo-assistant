@@ -8,6 +8,7 @@ from pymongo import MongoClient
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from repository_quality_analyzer import analyze_repository_quality
 
 
 import re
@@ -195,3 +196,38 @@ def get_current_user(request: Request):
         "user_id": user_id,
         "role": request.session.get("role")
     }
+@app.post("/repository/quality-check")
+def repository_quality_check(request: Request, repository_path: str):
+    # Require an authenticated session.
+    user_id = request.session.get("user_id")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Please log in before analyzing a repository."
+        )
+
+    # Restrict analysis to the local project directory during development.
+    project_root = Path(__file__).resolve().parent.parent
+    target_path = Path(repository_path).resolve()
+
+    if not target_path.is_relative_to(project_root):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only analyze repositories inside the project directory."
+        )
+
+    try:
+        return analyze_repository_quality(target_path)
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="The repository directory was not found."
+        )
+
+    except NotADirectoryError:
+        raise HTTPException(
+            status_code=400,
+            detail="The provided path must be a directory."
+        )
