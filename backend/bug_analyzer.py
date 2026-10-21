@@ -657,3 +657,24 @@ def generate_bug_report_markdown(analysis_results: Dict[str, Any]) -> str:
     ])
 
     return "\n".join(lines)
+
+
+
+if __name__ == "__main__":
+    import sys
+    target = sys.argv[1] if len(sys.argv) > 1 else "."
+    print(f"Scanning '{target}' for Python code bugs...")
+    try:
+        results = analyze_repository_bugs(target)
+        print(f"Health Score: {results['health_score']}/100")
+        print(f"Python Files Analyzed: {results['total_python_files']} ({results['total_python_lines']} lines)")
+        print(f"Total Findings: {results['total_findings']}")
+        print(f"Severity Breakdown: {results['severity_breakdown']}")
+        if results["findings"]:
+            print("\nSample Findings Detected:")
+            for f in results["findings"][:5]:
+                print(f"  • [{f['severity']}] {f['file']}:{f['line']} -> {f['title']}")
+        else:
+            print("\nClean repository! No bugs detected.")
+    except Exception as exc:
+        print(f"Error scanning '{target}': {exc}")
