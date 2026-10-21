@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Hackloop API",
+    title="RepoGuide API",
     lifespan=lifespan,
 )
 
@@ -94,7 +94,7 @@ app.add_middleware(
 @app.get("/")
 def home():
     return {
-        "message": "Hackloop API is running!"
+        "message": "RepoGuide API is running!"
     }
 @app.post("/auth/register")
 def register_user(user: RegisterRequest):
