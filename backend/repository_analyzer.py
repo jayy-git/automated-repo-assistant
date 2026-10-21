@@ -9,7 +9,15 @@ Takes a public GitHub repository URL, retrieves metadata and file structure
 using the GitHub REST API, and returns a normalized dictionary matching the
 shared team contract. Handles all network, validation, and API errors gracefully.
 
-Also preserves local folder scanning (scan_repository) for backward compatibility.
+Also includes comprehensive repository structure and organization analysis:
+- Directory analysis
+- File classification
+- Project convention detection
+- Organisation issue detection
+- Folder structure recommendations
+- Dependency and configuration review
+- Change planning
+- Organisation report
 """
 
 import json
@@ -20,6 +28,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from organization_analyzer import analyze_organization
 
 # =====================================================================
 # PART 1: Online GitHub Repository Analyzer (Person A Core Assignment)
@@ -42,6 +52,7 @@ def _build_default_repo_data(repo_url: Optional[str] = "", error: Optional[str] 
         "license_exists": False,
         "contributing_exists": False,
         "requirements_files": [],
+        "organization": None,
         "error": error
     }
 
@@ -201,8 +212,8 @@ def analyze_repository(repo_url: str) -> Dict[str, Any]:
     """
     Main entry point for Person A's module as per the revised team guide.
     
-    Accepts a public GitHub repository URL, fetches repository facts, and returns
-    a normalized dictionary matching the agreed team contract.
+    Accepts a public GitHub repository URL, fetches repository facts, performs
+    directory and organization analysis, and returns a normalized dictionary.
     """
     # Step 1: Validate and parse URL
     owner, repo, parse_error = parse_github_url(repo_url)
@@ -238,7 +249,10 @@ def analyze_repository(repo_url: str) -> Dict[str, Any]:
     # Step 5: Detect project documents & requirements
     readme_exists, license_exists, contributing_exists, req_files = _detect_project_documents(files, repo_meta)
 
-    # Step 6: Return normalized data dictionary matching team contract
+    # Step 6: Perform complete 8-part Organization & Structure Analysis
+    organization_analysis = analyze_organization(files, repo_name=repo_name)
+
+    # Step 7: Return normalized data dictionary matching team contract
     return {
         "repo_url": normalized_url,
         "repo_name": repo_name,
@@ -250,6 +264,7 @@ def analyze_repository(repo_url: str) -> Dict[str, Any]:
         "license_exists": license_exists,
         "contributing_exists": contributing_exists,
         "requirements_files": req_files,
+        "organization": organization_analysis,
         "error": None
     }
 
@@ -273,7 +288,7 @@ IGNORED_SUFFIXES = {
 
 
 def scan_repository(repository_path):
-    """Scan a local directory and return a safe file inventory."""
+    """Scan a local directory and return a safe file inventory with organization analysis."""
     root = Path(repository_path).resolve()
 
     if not root.exists():
@@ -305,8 +320,11 @@ def scan_repository(repository_path):
 
     files.sort()
 
+    organization_analysis = analyze_organization(files, repo_name=root.name)
+
     return {
         "repository_path": str(root),
         "total_files": len(files),
         "files": files,
+        "organization": organization_analysis,
     }

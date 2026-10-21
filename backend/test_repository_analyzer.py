@@ -4,6 +4,7 @@ test_repository_analyzer.py
 Tests for Person A's repository_analyzer module:
 - Online GitHub repository analysis (analyze_repository)
 - Local directory scanning (scan_repository)
+- Organization & Structure Analysis integration
 """
 
 from pathlib import Path
@@ -17,9 +18,11 @@ def test_online_analyzer():
     print("Default Branch:", result["default_branch"])
     print("Files found:", result["files"])
     print("README exists:", result["readme_exists"])
-    print("Error:", result["error"])
+    print("Organization Analysis:", "Present" if result.get("organization") else "Missing")
     assert result["error"] is None
     assert result["readme_exists"] is True
+    assert result.get("organization") is not None
+    assert "file_classification" in result["organization"]
     print("[PASS] Online repository analyzer test passed!\n")
 
 def test_local_scanner():
@@ -28,7 +31,9 @@ def test_local_scanner():
     result = scan_repository(project_root)
     print("Repository:", result["repository_path"])
     print("Total files:", result["total_files"])
+    print("Architecture Detected:", result["organization"]["project_conventions"]["architecture_type"])
     assert result["total_files"] > 0
+    assert result.get("organization") is not None
     print("[PASS] Local scanner test passed!\n")
 
 if __name__ == "__main__":
