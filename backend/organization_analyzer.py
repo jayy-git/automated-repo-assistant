@@ -306,47 +306,47 @@ def recommend_folder_structure(conventions: Dict[str, Any], issues: List[Dict[st
 
     if "Full-Stack" in arch:
         recommended_tree = """project-root/
-├── .gitignore
-├── LICENSE
-├── README.md
-├── backend/
-│   ├── app/ or main.py      # Backend API application
-│   ├── requirements.txt     # Python backend dependencies
-│   └── tests/               # Dedicated backend tests
-│       ├── __init__.py
-│       └── test_api.py
-└── frontend/
-    ├── package.json         # Frontend dependencies and scripts
-    ├── index.html           # SPA entry point
-    └── src/
-        ├── App.jsx
-        └── components/      # Reusable UI components"""
+|-- .gitignore
+|-- LICENSE
+|-- README.md
+|-- backend/
+|   |-- app/ or main.py      # Backend API application
+|   |-- requirements.txt     # Python backend dependencies
+|   \\-- tests/               # Dedicated backend tests
+|       |-- __init__.py
+|       \\-- test_api.py
+\\-- frontend/
+    |-- package.json         # Frontend dependencies and scripts
+    |-- index.html           # SPA entry point
+    \\-- src/
+        |-- App.jsx
+        \\-- components/      # Reusable UI components"""
         rationale = "Maintains a clean separation of concerns between client and server layers while isolating test suites into dedicated directories."
 
     elif "Python" in arch:
         recommended_tree = """project-root/
-├── .gitignore
-├── LICENSE
-├── README.md
-├── pyproject.toml           # Build system and dependency configuration
-├── src/
-│   └── package_name/        # Source code
-│       ├── __init__.py
-│       └── core.py
-├── tests/                   # Isolated test suite
-│   ├── __init__.py
-│   └── test_core.py
-└── docs/                    # Extended documentation"""
+|-- .gitignore
+|-- LICENSE
+|-- README.md
+|-- pyproject.toml           # Build system and dependency configuration
+|-- src/
+|   \\-- package_name/        # Source code
+|       |-- __init__.py
+|       \\-- core.py
+|-- tests/                   # Isolated test suite
+|   |-- __init__.py
+|   \\-- test_core.py
+\\-- docs/                    # Extended documentation"""
         rationale = "Adheres to PEP 517/518 and standard Python 'src' packaging conventions, preventing accidental imports of uninstalled local files during testing."
 
     else:
         recommended_tree = """project-root/
-├── .gitignore
-├── LICENSE
-├── README.md
-├── src/                     # All application source code
-├── tests/                   # Automated tests
-└── docs/                    # Setup & architecture guides"""
+|-- .gitignore
+|-- LICENSE
+|-- README.md
+|-- src/                     # All application source code
+|-- tests/                   # Automated tests
+\\-- docs/                    # Setup & architecture guides"""
         rationale = "Consolidates logic into 'src/' and 'tests/', keeping the root directory clean and approachable."
 
     return {
@@ -568,7 +568,7 @@ def generate_organization_report(org_data: Dict[str, Any]) -> str:
         lines.append("")
         lines.append("### Configuration Gaps:")
         for gap in deps["configuration_gaps"]:
-            lines.append(f"- ⚠️ {gap}")
+            lines.append(f"- [!] {gap}")
 
     lines.extend([
         "",
@@ -579,7 +579,7 @@ def generate_organization_report(org_data: Dict[str, Any]) -> str:
     if plan:
         for idx, step in enumerate(plan, start=1):
             if step["action"] == "MOVE":
-                lines.append(f"{idx}. **MOVE**: `{step['source']}` ➔ `{step['destination']}`")
+                lines.append(f"{idx}. **MOVE**: `{step['source']}` -> `{step['destination']}`")
             else:
                 lines.append(f"{idx}. **{step['action']}**: `{step['destination']}`")
             lines.append(f"   *Rationale:* {step['rationale']}")
