@@ -38,6 +38,7 @@ function App() {
   const [isAnalyzingRepo, setIsAnalyzingRepo] = useState(false);
   const [repoError, setRepoError] = useState("");
   const [severityFilter, setSeverityFilter] = useState("ALL");
+  const [showScoreGuide, setShowScoreGuide] = useState(false);
 
   // Interactive Sandbox State
   const [sandboxCode, setSandboxCode] = useState(SAMPLE_BUGGY_CODE);
@@ -494,6 +495,13 @@ function App() {
                           ? "Needs Improvement"
                           : "Action Required"}
                       </span>
+                      <button
+                        type="button"
+                        className="btn-score-guide-toggle"
+                        onClick={() => setShowScoreGuide(!showScoreGuide)}
+                      >
+                        {showScoreGuide ? "▲ Hide Guide" : "ℹ️ How it's scored"}
+                      </button>
                     </div>
 
                     <div className="metric-card">
@@ -532,6 +540,53 @@ function App() {
                       </div>
                     </div>
                   </div>
+
+                  {showScoreGuide && (
+                    <div className="score-guide-panel">
+                      <div className="guide-header">
+                        <h4>Code Health Scoring System & Severity Reference Guide</h4>
+                        <span className="guide-sub">Base score starts at 100 points. Points are deducted based on finding risk.</span>
+                      </div>
+                      <div className="guide-table-wrapper">
+                        <table className="guide-table">
+                          <thead>
+                            <tr>
+                              <th>Severity Tier</th>
+                              <th>Point Deduction</th>
+                              <th>Impact & Hazard Description</th>
+                              <th>Detected Bug Patterns</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td><span className="severity-badge sev-critical">CRITICAL</span></td>
+                              <td className="deduct-pts">-20 pts</td>
+                              <td>Confirmed syntax/compilation failure. Python cannot execute or import this file.</td>
+                              <td><code>SyntaxError</code> (missing colons, broken brackets, invalid indentation)</td>
+                            </tr>
+                            <tr>
+                              <td><span className="severity-badge sev-high">HIGH</span></td>
+                              <td className="deduct-pts">-10 pts</td>
+                              <td>Severe runtime hazards, resource leaks, or masked system termination signals.</td>
+                              <td><code>open()</code> without <code>with</code> context manager, Bare <code>except:</code></td>
+                            </tr>
+                            <tr>
+                              <td><span className="severity-badge sev-medium">MEDIUM</span></td>
+                              <td className="deduct-pts">-5 pts</td>
+                              <td>Silent failure traps and state leakage persisting across function calls.</td>
+                              <td>Mutable default arguments (<code>x=[]</code>, <code>x=&#123;&#125;</code>), <code>except Exception: pass</code></td>
+                            </tr>
+                            <tr>
+                              <td><span className="severity-badge sev-low">LOW</span></td>
+                              <td className="deduct-pts">-2 pts</td>
+                              <td>Code hygiene, PEP 8 identity checks, and global built-in collision.</td>
+                              <td><code>== None</code> vs <code>is None</code>, Variable shadowing (<code>list</code>, <code>dict</code>)</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Actions & Filters Bar */}
                   <div className="action-bar">

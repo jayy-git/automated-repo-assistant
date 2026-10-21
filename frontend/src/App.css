@@ -1172,3 +1172,99 @@ input {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Score Guide Toggle & Reference Table */
+.btn-score-guide-toggle {
+  background: transparent;
+  border: 1px dashed #3a4459;
+  color: #a78bfa;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 8px;
+  align-self: flex-start;
+  transition: all 0.15s ease;
+}
+
+.btn-score-guide-toggle:hover {
+  background: #1e1b38;
+  border-color: #8b5cf6;
+  color: #c4b5fd;
+}
+
+.score-guide-panel {
+  background: #11151e;
+  border: 1px solid #2b3345;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-top: 16px;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.guide-header h4 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: #f1f5f9;
+}
+
+.guide-sub {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.guide-table-wrapper {
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.guide-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.guide-table th {
+  padding: 10px 14px;
+  background: #181f2c;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #283246;
+}
+
+.guide-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #1c2433;
+  color: #cbd5e1;
+  vertical-align: middle;
+}
+
+.guide-table tr:hover td {
+  background: #161c28;
+}
+
+.deduct-pts {
+  font-weight: 800;
+  color: #f87171;
+  font-family: ui-monospace, monospace;
+}
+
+.guide-table code {
+  background: #0b0e14;
+  border: 1px solid #242c3d;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #a5b4fc;
+  font-size: 12px;
+}

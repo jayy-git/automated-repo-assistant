@@ -599,6 +599,15 @@ def generate_bug_report_markdown(analysis_results: Dict[str, Any]) -> str:
         f"- 🟡 **Medium (Mutable Defaults & Swallowed Errors):** {breakdown.get('Medium', 0)}",
         f"- 🔵 **Low / Code Style (PEP 8 & Builtins):** {breakdown.get('Low', 0)}",
         "",
+        "## Scoring System & Severity Guide",
+        "",
+        "| Severity | Penalty | Description | Patterns Detected |",
+        "| :--- | :---: | :--- | :--- |",
+        "| 🔴 **Critical** | **-20 pts** | Confirmed compilation/syntax failure. Python cannot execute the file. | `SyntaxError` |",
+        "| 🟠 **High** | **-10 pts** | High risk of runtime crash or socket/file resource exhaustion. | `open()` without `with`, bare `except:` |",
+        "| 🟡 **Medium** | **-5 pts** | Silent bug traps and cross-call state pollution. | Mutable defaults (`[]`, `{}`), Swallowed errors (`except: pass`) |",
+        "| 🔵 **Low** | **-2 pts** | Code style, PEP 8 identity checks, and namespace hygiene. | `== None` vs `is None`, Shadowing built-in names (`list`, `dict`) |",
+        "",
         "---",
         "",
         "## Detailed Findings",
@@ -664,18 +673,43 @@ if __name__ == "__main__":
     import sys
     target = sys.argv[1] if len(sys.argv) > 1 else "."
     print(f"Scanning '{target}' for Python code bugs...")
+    target_path = Path(target).resolve()
     try:
-        results = analyze_repository_bugs(target)
-        print(f"Health Score: {results['health_score']}/100")
-        print(f"Python Files Analyzed: {results['total_python_files']} ({results['total_python_lines']} lines)")
-        print(f"Total Findings: {results['total_findings']}")
-        print(f"Severity Breakdown: {results['severity_breakdown']}")
-        if results["findings"]:
-            print("\nSample Findings Detected:")
-            for f in results["findings"][:5]:
-                print(f"  • [{f['severity']}] {f['file']}:{f['line']} -> {f['title']}")
+        if target_path.is_file():
+            content = target_path.read_text(encoding="utf-8")
+            res = analyze_python_code(content, filename=target_path.name)
+            score = calculate_code_health_score(res["findings"], 1)
+            print(f"Health Score: {score}/100")
+            print(f"Total Lines: {res['total_lines']}")
+            print(f"Total Findings: {res['findings_count']}")
+            if res["findings"]:
+                print("\nFindings Detected:")
+                for f in res["findings"]:
+                    print(f"  * [{f['severity']}] Line {f['line']}: {f['title']}")
+                    if f["evidence"]:
+                        print(f"    Evidence: {f['evidence']}")
+                    if f["proposed_fix"]:
+                        print(f"    Suggested Fix: {f['proposed_fix']}")
+                    print()
+            else:
+                print("\nClean file! No bugs detected.")
         else:
-            print("\nClean repository! No bugs detected.")
+            results = analyze_repository_bugs(target)
+            print(f"Health Score: {results['health_score']}/100")
+            print(f"Python Files Analyzed: {results['total_python_files']} ({results['total_python_lines']} lines)")
+            print(f"Total Findings: {results['total_findings']}")
+            print(f"Severity Breakdown: {results['severity_breakdown']}")
+            if results["findings"]:
+                print("\nFindings Detected:")
+                for f in results["findings"]:
+                    print(f"  * [{f['severity']}] {f['file']}:{f['line']} -> {f['title']}")
+                    if f["evidence"]:
+                        print(f"    Evidence: {f['evidence']}")
+                    if f["proposed_fix"]:
+                        print(f"    Suggested Fix: {f['proposed_fix']}")
+                    print()
+            else:
+                print("\nClean repository! No bugs detected.")
     except Exception as exc:
         print(f"Error scanning '{target}': {exc}")
 
