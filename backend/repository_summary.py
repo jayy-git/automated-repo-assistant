@@ -3,6 +3,9 @@ from pathlib import Path
 from repository_analyzer import scan_repository
 from technology_detector import detect_technology_stack
 from file_analyzer import analyze_important_files
+from dependency_analyzer import analyze_dependencies
+from code_relationship_analyzer import analyze_code_relationships
+
 
 
 def generate_repository_summary(repository_path):
@@ -14,6 +17,9 @@ def generate_repository_summary(repository_path):
     inventory = scan_repository(root)
     technologies = detect_technology_stack(root)
     important_files = analyze_important_files(root)
+    dependencies = analyze_dependencies(root)
+    code_relationships = analyze_code_relationships(root)
+    
 
         # Build a simple overview of the repository structure.
     structure = {}
@@ -27,14 +33,15 @@ def generate_repository_summary(repository_path):
             folder = parts[0]
             structure.setdefault(folder, []).append(file)
 
-    # Build the summary.
     summary = {
-        "repository_name": "RepoGuide",
-        "repository_path": str(root),
-        "total_files": inventory["total_files"],
-        "technology_stack": technologies,
-        "important_files": important_files,
-        "project_structure": structure,
-    }
+    "repository_name": root.name,
+    "repository_path": str(root),
+    "total_files": inventory["total_files"],
+    "technology_stack": technologies,
+    "dependencies": dependencies,
+    "important_files": important_files,
+    "project_structure": structure,
+    "code_relationships": code_relationships,
+}
 
     return summary

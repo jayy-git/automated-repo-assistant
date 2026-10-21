@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from repository_summary import generate_repository_summary
+from documentation_validator import validate_documentation
 
 
 def generate_onboarding_document(repository_path):
@@ -23,6 +24,8 @@ def generate_onboarding_document(repository_path):
 
     technologies = summary["technology_stack"]
     important_files = summary["important_files"]
+    dependencies = summary["dependencies"]
+    code_relationships = summary["code_relationships"]
 
     lines = [
         f"# {summary['repository_name']} — Developer Onboarding",
@@ -57,7 +60,50 @@ def generate_onboarding_document(repository_path):
         lines.append("")
 
     lines.extend([
-        "## 4. Project Structure",
+        "",
+        "## 4. Dependencies",
+        "",
+        "### Python Dependencies",
+        "",
+    ])
+
+    if dependencies["python"]:
+        for dependency in dependencies["python"]:
+            name = dependency["name"]
+            version = dependency["version_specifier"] or "Version unspecified"
+            lines.append(f"- **{name}** — `{version}`")
+    else:
+        lines.append("No Python dependencies detected.")
+
+    lines.extend([
+        "",
+        "### JavaScript Dependencies",
+        "",
+    ])
+
+    if dependencies["javascript"]:
+        for dependency in dependencies["javascript"]:
+            name = dependency["name"]
+            version = dependency["version_specifier"] or "Version unspecified"
+            dependency_type = dependency["dependency_type"]
+            lines.append(
+                f"- **{name}** — `{version}` ({dependency_type})"
+            )
+    else:
+        lines.append("No JavaScript dependencies detected.")
+
+    if dependencies["warnings"]:
+        lines.extend([
+            "",
+            "### Dependency Analysis Warnings",
+            "",
+        ])
+        for warning in dependencies["warnings"]:
+            lines.append(f"- {warning}")
+
+    lines.extend([
+        "",
+        "## 5. Project Structure",
         "",
         "The following files provide a starting point for exploring "
         "the repository:",
@@ -69,7 +115,34 @@ def generate_onboarding_document(repository_path):
 
     lines.extend([
         "",
-        "## 5. Setup Guidance",
+        "## 6. Code Relationships",
+        "",
+        "This section identifies relationships between Python files "
+        "based on their import statements.",
+        "",
+    ])
+
+    relationships = code_relationships["relationships"]
+
+    if relationships:
+        for relationship in relationships:
+            lines.append(
+                f"- `{relationship['source_file']}` imports "
+                f"`{relationship['target_file']}`"
+            )
+    else:
+        lines.append(
+            "No internal Python import relationships were detected."
+        )
+
+    lines.extend([
+        "",
+        f"**Python files analyzed:** "
+        f"{code_relationships['python_files_analyzed']}",
+        f"**Relationships detected:** "
+        f"{code_relationships['relationships_count']}",
+        "",
+        "## 7. Setup Guidance",
         "",
         "Use the following files to understand how to install and run "
         "the project:",
@@ -95,8 +168,12 @@ def generate_onboarding_document(repository_path):
     output_path = root / "ONBOARDING.md"
     output_path.write_text(document_content, encoding="utf-8")
 
+
+    validation = validate_documentation(root)
+
     return {
-        "output_path": str(output_path),
-        "characters_written": len(document_content),
-        "repository_name": summary["repository_name"],
-    }
+    "output_path": str(output_path),
+    "characters_written": len(document_content),
+    "repository_name": summary["repository_name"],
+    "documentation_validation": validation,
+}
