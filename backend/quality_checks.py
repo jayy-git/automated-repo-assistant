@@ -1,3 +1,12 @@
+import ast
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from repository_analyzer import scan_repository
+
+
 def check_repository(repo_data):
     findings = []
 
@@ -112,3 +121,236 @@ def check_repository(repo_data):
             "suggestion": "Consider adding a .gitignore file for generated files and local-only files."
         })
     return findings
+
+
+COMPLEXITY_THRESHOLD = 10
+SEVERITIES = ("Critical", "High", "Medium", "Low", "Info")
+
+
+def _quality_finding(
+    file_path,
+    line_number,
+    severity,
+    category,
+    explanation,
+    recommendation,
+):
+    return {
+        "file_path": file_path,
+        "line_number": line_number,
+        "severity": severity,
+        "category": category,
+        "explanation": explanation,
+        "recommendation": recommendation,
+    }
+
+
+def _quality_report(repository_path, files_analyzed, findings):
+    severity_counts = {severity: 0 for severity in SEVERITIES}
+    for finding in findings:
+        severity_counts[finding["severity"]] += 1
+
+    return {
+        "repository_path": str(repository_path),
+        "files_analyzed": files_analyzed,
+        "findings": findings,
+        "summary": {
+            "total_findings": len(findings),
+            "by_severity": severity_counts,
+        },
+    }
+
+
+def _run_ruff(root, file_paths, findings):
+    if not file_paths:
+        return
+
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "--output-format=json",
+                "--",
+                *[str(path) for path in file_paths],
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        findings.append(_quality_finding(
+            None,
+            None,
+            "Low",
+            "Tool",
+            f"Ruff could not be started: {error}.",
+            "Install Ruff in the backend environment and rerun the analysis.",
+        ))
+        return
+
+    details = result.stderr.strip()
+    if "No module named ruff" in details:
+        findings.append(_quality_finding(
+            None,
+            None,
+            "Low",
+            "Tool",
+            "Ruff is not installed in the active Python environment.",
+            "Install Ruff in the backend environment and rerun the analysis.",
+        ))
+        return
+
+    if result.returncode not in (0, 1):
+        explanation = (
+            f"Ruff could not analyze the Python files: {details or 'unknown error'}"
+        )
+        findings.append(_quality_finding(
+            None,
+            None,
+            "Low",
+            "Tool",
+            explanation,
+            "Install or repair Ruff in the backend environment and rerun the analysis.",
+        ))
+        return
+
+    try:
+        diagnostics = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        findings.append(_quality_finding(
+            None,
+            None,
+            "Low",
+            "Tool",
+            f"Ruff returned invalid JSON output: {error}.",
+            "Check the Ruff installation and rerun the analysis.",
+        ))
+        return
+
+    paths_by_absolute_name = {
+        str(path.resolve()): path.relative_to(root).as_posix()
+        for path in file_paths
+    }
+    for diagnostic in diagnostics:
+        absolute_name = str(Path(diagnostic["filename"]).resolve())
+        relative_path = paths_by_absolute_name.get(
+            absolute_name,
+            Path(diagnostic["filename"]).name,
+        )
+        code = diagnostic.get("code") or "lint"
+        line_number = diagnostic.get("location", {}).get("row")
+        message = diagnostic.get("message", "Ruff reported a lint issue.")
+        if code == "F401":
+            recommendation = "Remove the unused import or use it in the module."
+        else:
+            recommendation = (
+                "Apply Ruff's suggested fix when available, or update the code "
+                "to follow the reported lint rule."
+            )
+        findings.append(_quality_finding(
+            relative_path,
+            line_number,
+            "Medium",
+            "Lint",
+            f"{code}: {message}",
+            recommendation,
+        ))
+
+
+def _check_complexity(sources, findings):
+    if not sources:
+        return
+
+    try:
+        from radon.complexity import cc_visit
+        from radon.visitors import Function
+    except ImportError:
+        findings.append(_quality_finding(
+            None,
+            None,
+            "Low",
+            "Tool",
+            "Radon is not installed in the active Python environment.",
+            "Install Radon in the backend environment and rerun the analysis.",
+        ))
+        return
+
+    for file_path, source in sources:
+        for block in cc_visit(source):
+            if isinstance(block, Function) and block.complexity > COMPLEXITY_THRESHOLD:
+                findings.append(_quality_finding(
+                    file_path,
+                    block.lineno,
+                    "Medium",
+                    "Complexity",
+                    (
+                        f"Function '{block.name}' has cyclomatic complexity "
+                        f"{block.complexity}, above the threshold of "
+                        f"{COMPLEXITY_THRESHOLD}."
+                    ),
+                    "Split the function into smaller functions or simplify its branches.",
+                ))
+
+
+def analyze_code_quality(repository_path):
+    """Return Python syntax, Ruff lint, and Radon complexity findings."""
+    try:
+        root = Path(repository_path).resolve()
+        inventory = scan_repository(root)
+    except (FileNotFoundError, NotADirectoryError, TypeError, OSError, RuntimeError) as error:
+        finding = _quality_finding(
+            None,
+            None,
+            "High",
+            "Input",
+            f"The repository path could not be analyzed: {error}.",
+            "Provide a path to an existing, accessible repository directory.",
+        )
+        return _quality_report(repository_path, 0, [finding])
+
+    python_paths = [
+        root / Path(file_path)
+        for file_path in inventory["files"]
+        if file_path.lower().endswith(".py")
+    ]
+    findings = []
+    readable_sources = []
+
+    for path in python_paths:
+        relative_path = path.relative_to(root).as_posix()
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            findings.append(_quality_finding(
+                relative_path,
+                None,
+                "High",
+                "Input",
+                f"The Python file could not be read as UTF-8: {error}.",
+                "Ensure the file is readable and saved using UTF-8 encoding.",
+            ))
+            continue
+
+        try:
+            ast.parse(source, filename=relative_path)
+        except SyntaxError as error:
+            findings.append(_quality_finding(
+                relative_path,
+                error.lineno,
+                "Critical",
+                "Syntax",
+                error.msg,
+                "Correct the syntax at the reported line, then rerun the analysis.",
+            ))
+            continue
+
+        readable_sources.append((relative_path, source))
+
+    _run_ruff(root, [root / path for path, _ in readable_sources], findings)
+    _check_complexity(readable_sources, findings)
+
+    return _quality_report(root, len(python_paths), findings)

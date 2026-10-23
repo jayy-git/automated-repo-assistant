@@ -1,5 +1,10 @@
+import subprocess
+import tempfile
 import unittest
-from quality_checks import check_repository
+from pathlib import Path
+from unittest.mock import patch
+
+from quality_checks import analyze_code_quality, check_repository
 
 
 class TestQualityChecks(unittest.TestCase):
@@ -127,6 +132,165 @@ class TestQualityChecks(unittest.TestCase):
         ]
 
         self.assertNotIn("Setup instructions may be missing", finding_titles)
+
+    def test_code_quality_report_for_clean_python_file(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "sample.py").write_text(
+                'def greet(name):\n    return f"Hello, {name}"\n',
+                encoding="utf-8",
+            )
+
+            report = analyze_code_quality(root)
+
+        self.assertEqual(report["files_analyzed"], 1)
+        self.assertEqual(report["findings"], [])
+        self.assertEqual(report["summary"]["total_findings"], 0)
+
+    def test_syntax_errors_include_file_path_and_line_number(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "broken.py").write_text(
+                "def broken(:\n    pass\n",
+                encoding="utf-8",
+            )
+
+            report = analyze_code_quality(root)
+
+        syntax_findings = [
+            finding
+            for finding in report["findings"]
+            if finding["category"] == "Syntax"
+        ]
+        self.assertEqual(len(syntax_findings), 1)
+        self.assertEqual(syntax_findings[0]["file_path"], "broken.py")
+        self.assertEqual(syntax_findings[0]["line_number"], 1)
+        self.assertEqual(syntax_findings[0]["severity"], "Critical")
+        self.assertTrue(syntax_findings[0]["recommendation"])
+
+    def test_ruff_reports_unused_imports(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "unused.py").write_text(
+                "import os\n\nvalue = 1\n",
+                encoding="utf-8",
+            )
+
+            report = analyze_code_quality(root)
+
+        lint_findings = [
+            finding
+            for finding in report["findings"]
+            if finding["category"] == "Lint"
+        ]
+        self.assertTrue(any(
+            finding["file_path"] == "unused.py"
+            and finding["line_number"] == 1
+            and "F401" in finding["explanation"]
+            for finding in lint_findings
+        ))
+
+    def test_radon_reports_overly_complex_functions(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            branches = "\n".join(
+                f"    if value == {number}:\n        result += {number}"
+                for number in range(10)
+            )
+            (root / "complex.py").write_text(
+                f"def too_complex(value):\n    result = 0\n{branches}\n"
+                "    return result\n",
+                encoding="utf-8",
+            )
+
+            report = analyze_code_quality(root)
+
+        complexity_findings = [
+            finding
+            for finding in report["findings"]
+            if finding["category"] == "Complexity"
+        ]
+        self.assertEqual(len(complexity_findings), 1)
+        self.assertEqual(complexity_findings[0]["file_path"], "complex.py")
+        self.assertEqual(complexity_findings[0]["line_number"], 1)
+        self.assertIn("complexity 11", complexity_findings[0]["explanation"])
+
+    def test_invalid_repository_paths_return_structured_input_findings(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            file_path = Path(temporary_directory) / "not-a-directory"
+            file_path.write_text("not a directory", encoding="utf-8")
+
+            for invalid_path in (
+                file_path / "missing",
+                file_path,
+            ):
+                with self.subTest(path=invalid_path):
+                    report = analyze_code_quality(invalid_path)
+
+                    self.assertEqual(report["files_analyzed"], 0)
+                    self.assertEqual(len(report["findings"]), 1)
+                    self.assertEqual(report["findings"][0]["category"], "Input")
+                    self.assertIsNone(report["findings"][0]["file_path"])
+                    self.assertIsNone(report["findings"][0]["line_number"])
+                    self.assertTrue(report["findings"][0]["recommendation"])
+
+    def test_missing_ruff_is_reported_without_aborting_analysis(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "sample.py").write_text(
+                "value = 1\n",
+                encoding="utf-8",
+            )
+            missing_ruff = subprocess.CompletedProcess(
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="No module named ruff",
+            )
+
+            with patch(
+                "quality_checks.subprocess.run",
+                return_value=missing_ruff,
+            ):
+                report = analyze_code_quality(root)
+
+        tool_findings = [
+            finding
+            for finding in report["findings"]
+            if finding["category"] == "Tool"
+        ]
+        self.assertTrue(any(
+            "Ruff is not installed" in finding["explanation"]
+            for finding in tool_findings
+        ))
+
+    def test_missing_radon_is_reported_without_aborting_analysis(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "sample.py").write_text(
+                "value = 1\n",
+                encoding="utf-8",
+            )
+
+            with patch.dict(
+                "sys.modules",
+                {
+                    "radon": None,
+                    "radon.complexity": None,
+                    "radon.visitors": None,
+                },
+            ):
+                report = analyze_code_quality(root)
+
+        tool_findings = [
+            finding
+            for finding in report["findings"]
+            if finding["category"] == "Tool"
+        ]
+        self.assertTrue(any(
+            "Radon is not installed" in finding["explanation"]
+            for finding in tool_findings
+        ))
 
 
 if __name__ == "__main__":
