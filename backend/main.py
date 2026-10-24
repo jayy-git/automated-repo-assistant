@@ -1,8 +1,15 @@
-import os
+﻿import os
+import shutil
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
+import re
+import tempfile
+import zipfile
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request as URLRequest, urlopen
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
@@ -238,59 +245,235 @@ def repository_quality_check(request: Request, repository_path: str):
         )
 
 
+MAX_REPOSITORY_ARCHIVE_BYTES = 50 * 1024 * 1024
+MAX_EXTRACTED_REPOSITORY_BYTES = 200 * 1024 * 1024
+MAX_REPOSITORY_FILES = 10000
+
+
+def _parse_github_repository_url(value: str) -> tuple[str, str]:
+    """Validate a public GitHub repository URL and return its owner/repo."""
+    parsed = urlparse(value.strip())
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="The GitHub URL is invalid.") from exc
+
+    if (
+        parsed.scheme.lower() != "https"
+        or parsed.hostname not in {"github.com", "www.github.com"}
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a public GitHub URL such as https://github.com/owner/repository.",
+        )
+
+    parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if len(parts) < 2 or parts[0] in {".", ".."}:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a GitHub repository URL such as https://github.com/owner/repository.",
+        )
+
+    owner, repository = parts[0], parts[1]
+    repository = repository.removesuffix(".git")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", owner) or not re.fullmatch(
+        r"[A-Za-z0-9_.-]{1,100}", repository
+    ):
+        raise HTTPException(status_code=400, detail="The GitHub repository URL is invalid.")
+    return owner, repository
+
+
+def _download_github_repository(github_url: str, destination: Path) -> Path:
+    """Download and safely extract a public GitHub repository archive."""
+    owner, repository = _parse_github_repository_url(github_url)
+    archive_url = f"https://api.github.com/repos/{owner}/{repository}/zipball"
+    request = URLRequest(
+        archive_url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "RepoGuide-Repository-Analyzer",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    archive_path = destination / "repository.zip"
+    downloaded = 0
+
+    try:
+        with urlopen(request, timeout=20) as response, archive_path.open("wb") as archive_file:
+            final_url = urlparse(response.geturl())
+            if final_url.scheme != "https" or final_url.hostname not in {
+                "api.github.com", "codeload.github.com"
+            }:
+                raise HTTPException(
+                    status_code=400,
+                    detail="GitHub redirected the download to an unexpected location.",
+                )
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                downloaded += len(chunk)
+                if downloaded > MAX_REPOSITORY_ARCHIVE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail="The repository archive exceeds the 50 MB download limit.",
+                    )
+                archive_file.write(chunk)
+    except HTTPException:
+        raise
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="GitHub repository not found. Check the URL and make sure the repository is public.",
+            ) from exc
+        if exc.code in {401, 403}:
+            raise HTTPException(
+                status_code=400,
+                detail="GitHub could not provide this repository. It may be private or temporarily rate-limited.",
+            ) from exc
+        raise HTTPException(
+            status_code=502, detail=f"GitHub download failed (HTTP {exc.code})."
+        ) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not reach GitHub. Check your internet connection and try again.",
+        ) from exc
+
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_REPOSITORY_FILES:
+                raise HTTPException(status_code=413, detail="The repository contains too many files to analyze.")
+            extracted_total = 0
+            safe_members = []
+            for member in members:
+                member_path = Path(member.filename)
+                # GitHub archives normally have one top-level folder. Reject absolute,
+                # parent-traversal, and symlink entries before writing anything.
+                normalized = member.filename.replace("\\", "/")
+                parts = normalized.split("/")
+                if normalized.startswith("/") or any(part in {"", ".", ".."} for part in parts[:-1]):
+                    raise HTTPException(status_code=400, detail="The repository archive contains an unsafe path.")
+                unix_mode = (member.external_attr >> 16) & 0o170000
+                if unix_mode == 0o120000:
+                    continue
+                extracted_total += member.file_size
+                if extracted_total > MAX_EXTRACTED_REPOSITORY_BYTES:
+                    raise HTTPException(status_code=413, detail="The extracted repository exceeds the 200 MB limit.")
+                safe_members.append((member, parts))
+
+            for member, parts in safe_members:
+                output_path = destination.joinpath(*parts)
+                resolved_output = output_path.resolve()
+                if not resolved_output.is_relative_to(destination.resolve()):
+                    raise HTTPException(status_code=400, detail="The repository archive contains an unsafe path.")
+                if member.is_dir():
+                    output_path.mkdir(parents=True, exist_ok=True)
+                    continue
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member) as source, output_path.open("wb") as target:
+                    shutil.copyfileobj(source, target)
+
+            root_dirs = [
+                child for child in destination.iterdir()
+                if child.is_dir() and child.name != "__MACOSX"
+            ]
+            if len(root_dirs) != 1:
+                raise HTTPException(status_code=400, detail="GitHub returned an unexpected repository archive.")
+            return root_dirs[0]
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=502, detail="GitHub returned an invalid repository archive.") from exc
+
+
 @app.post("/repository/analyze-bugs")
 def repository_analyze_bugs(request: Request, payload: RepoBugAnalysisRequest):
-    """
-    Scans a repository directory for code-level bugs, anti-patterns, and resource leaks.
-    Protected by session authentication.
-    """
+    """Analyze either a public GitHub URL or a local project directory."""
     user_id = request.session.get("user_id")
     if not user_id:
         raise HTTPException(
             status_code=401,
-            detail="Please log in before analyzing repository bugs."
+            detail="Please log in before analyzing repository bugs.",
         )
 
+    repository_input = payload.repository_path.strip() or "."
+    is_github_url = urlparse(repository_input).scheme.lower() in {"https", "http"}
     project_root = Path(__file__).resolve().parent.parent
-    path_candidate = Path(payload.repository_path)
-    target_path = (project_root / path_candidate).resolve() if not path_candidate.is_absolute() else path_candidate.resolve()
-
-    if not target_path.is_relative_to(project_root):
-        raise HTTPException(
-            status_code=403,
-            detail="You can only analyze repositories inside the project directory."
-        )
 
     try:
-        results = analyze_repository_bugs(
-            repository_path=str(target_path),
-            include_ai_explanations=payload.include_ai
-        )
-        results["report_markdown"] = generate_bug_report_markdown(results)
-
-        # Save a compact, user-scoped record for the real health-trend chart.
-        relative_repo = target_path.relative_to(project_root).as_posix() or "."
-        app.state.database["scan_history"].insert_one({
-            "user_id": user_id,
-            "repository_path": relative_repo,
-            "repository_name": results.get("repository_name") or target_path.name,
-            "scanned_at": datetime.now(timezone.utc),
-            "health_score": results.get("health_score"),
-            "total_findings": results.get("total_findings", len(results.get("findings", []))),
-            "severity_breakdown": results.get("severity_breakdown", {}),
-            "total_python_files": results.get("total_python_files", 0),
-        })
-        return results
-    except FileNotFoundError:
+        if is_github_url:
+            # Download to a temporary directory; never persist untrusted repository files.
+            with tempfile.TemporaryDirectory(prefix="repoguide-") as temp_dir:
+                repository_path = _download_github_repository(repository_input, Path(temp_dir))
+                results = analyze_repository_bugs(
+                    repository_path=str(repository_path),
+                    include_ai_explanations=payload.include_ai,
+                )
+                results["report_markdown"] = generate_bug_report_markdown(results)
+        else:
+            path_candidate = Path(repository_input)
+            target_path = (
+                (project_root / path_candidate).resolve()
+                if not path_candidate.is_absolute()
+                else path_candidate.resolve()
+            )
+            if not target_path.is_relative_to(project_root):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You can only analyze local repositories inside the project directory.",
+                )
+            if not target_path.exists():
+                raise HTTPException(status_code=404, detail="The repository directory was not found.")
+            if not target_path.is_dir():
+                raise HTTPException(status_code=400, detail="The provided path must be a directory.")
+            results = analyze_repository_bugs(
+                repository_path=str(target_path),
+                include_ai_explanations=payload.include_ai,
+            )
+            results["report_markdown"] = generate_bug_report_markdown(results)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
         raise HTTPException(
             status_code=404,
-            detail="The repository directory was not found."
-        )
-    except NotADirectoryError:
+            detail="The repository or a required source file could not be found.",
+        ) from exc
+    except NotADirectoryError as exc:
         raise HTTPException(
             status_code=400,
-            detail="The provided path must be a directory."
-        )
+            detail="The supplied repository path is not a directory.",
+        ) from exc
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="The repository could not be read. Check that it contains accessible source files.",
+        ) from exc
+
+    # Store history without assuming GitHub repositories live under the local project root.
+    history_path = (
+        repository_input
+        if is_github_url
+        else target_path.relative_to(project_root).as_posix() or "."
+    )
+    app.state.database["scan_history"].insert_one({
+        "user_id": user_id,
+        "repository_path": history_path,
+        "repository_name": results.get("repository_name") or (
+            repository_input.rstrip("/").split("/")[-1].removesuffix(".git")
+            if is_github_url else target_path.name
+        ),
+        "scanned_at": datetime.now(timezone.utc),
+        "health_score": results.get("health_score"),
+        "total_findings": results.get("total_findings", len(results.get("findings", []))),
+        "severity_breakdown": results.get("severity_breakdown", {}),
+        "total_python_files": results.get("total_python_files", 0),
+    })
+    return results
+
 
 @app.post("/repository/ask")
 def repository_ask(request: Request, payload: RepositoryQuestionRequest):
@@ -388,46 +571,39 @@ def download_bug_report(request: Request, payload: RepoBugAnalysisRequest):
         "markdown": report_md
     }
 
-=@app.get("/repository/files")
+@app.get("/repository/files")
 def get_repository_files(
     request: Request,
     repository_path: str = ".",
 ):
-    """Return a safe inventory of repository files for the workspace."""
-
+    """Return a safe inventory for either a local project path or public GitHub URL."""
     user_id = request.session.get("user_id")
     if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="Please log in before exploring repository files.",
-        )
+        raise HTTPException(status_code=401, detail="Please log in before exploring repository files.")
+
+    if urlparse(repository_path).scheme.lower() in {"http", "https"}:
+        # The analyzer's GitHub download is temporary, so download again for this request.
+        # TemporaryDirectory guarantees cleanup after inventory generation.
+        try:
+            with tempfile.TemporaryDirectory(prefix="repoguide-files-") as temp_dir:
+                repository_root = _download_github_repository(repository_path, Path(temp_dir))
+                return scan_repository(str(repository_root))
+        except HTTPException:
+            raise
+        except (OSError, zipfile.BadZipFile) as error:
+            raise HTTPException(status_code=400, detail="Could not retrieve the public GitHub repository files.") from error
 
     project_root = Path(__file__).resolve().parent.parent
     path_candidate = Path(repository_path)
-
-    target_path = (
-        (project_root / path_candidate).resolve()
-        if not path_candidate.is_absolute()
-        else path_candidate.resolve()
-    )
-
+    target_path = ((project_root / path_candidate).resolve() if not path_candidate.is_absolute() else path_candidate.resolve())
     if not target_path.is_relative_to(project_root):
-        raise HTTPException(
-            status_code=403,
-            detail="You can only explore repositories inside the project directory.",
-        )
-
+        raise HTTPException(status_code=403, detail="You can only explore repositories inside the project directory.")
     if not target_path.exists() or not target_path.is_dir():
-        raise HTTPException(
-            status_code=404,
-            detail="Repository directory was not found.",
-        )
-
+        raise HTTPException(status_code=404, detail="Repository directory was not found.")
     try:
-        inventory = scan_repository(str(target_path))
-        return inventory
+        return scan_repository(str(target_path))
     except (FileNotFoundError, NotADirectoryError) as error:
-        raise HTTPException(status_code=404, detail=str(error))
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @app.get("/repository/scan-history")
@@ -465,40 +641,52 @@ def get_repository_scan_history(request: Request, repository_path: Optional[str]
 
 @app.get("/repository/file-content")
 def get_repository_file_content(request: Request, repository_path: str = ".", file_path: str = ""):
-    """Return a bounded text file from an authenticated repository, preventing path traversal."""
+    """Return a bounded text file from a local repository or public GitHub repository."""
     user_id = request.session.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Please log in before opening repository files.")
     if not file_path.strip():
         raise HTTPException(status_code=400, detail="A file path is required.")
 
+    is_github_url = urlparse(repository_path).scheme.lower() in {"http", "https"}
     project_root = Path(__file__).resolve().parent.parent
-    repo_candidate = Path(repository_path)
-    target_repo = ((project_root / repo_candidate).resolve() if not repo_candidate.is_absolute() else repo_candidate.resolve())
-    if not target_repo.is_relative_to(project_root):
-        raise HTTPException(status_code=403, detail="You can only explore repositories inside the project directory.")
-    if not target_repo.exists() or not target_repo.is_dir():
-        raise HTTPException(status_code=404, detail="Repository directory was not found.")
 
-    relative_file = Path(file_path)
-    target_file = (target_repo / relative_file).resolve()
-    if not target_file.is_relative_to(target_repo):
-        raise HTTPException(status_code=403, detail="The requested file is outside the repository.")
-    if not target_file.exists() or not target_file.is_file():
-        raise HTTPException(status_code=404, detail="File was not found in this repository.")
-
-    # Avoid returning secrets, binaries, dependency trees, or huge files to the UI.
-    blocked_parts = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
-    if any(part.lower() in blocked_parts for part in target_file.relative_to(target_repo).parts):
-        raise HTTPException(status_code=403, detail="Files in generated or dependency directories cannot be opened.")
-    if target_file.name.lower().startswith(".env") or target_file.name.lower() in {"id_rsa", "id_ed25519"} or target_file.suffix.lower() in {".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".exe", ".dll", ".so", ".bin", ".pyc", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip"}:
-        raise HTTPException(status_code=403, detail="This file type is not available in the code viewer.")
-    if target_file.stat().st_size > 200_000:
-        raise HTTPException(status_code=413, detail="This file is too large to display (limit: 200 KB).")
+    # For URL-based browsing, download and inspect within a temporary directory.
+    # For local browsing, restrict access to the project's root as before.
+    temp_context = tempfile.TemporaryDirectory(prefix="repoguide-file-") if is_github_url else None
     try:
-        content = target_file.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=415, detail="This file is not a UTF-8 text file.")
-    except OSError:
-        raise HTTPException(status_code=500, detail="The file could not be read.")
-    return {"file_path": target_file.relative_to(target_repo).as_posix(), "content": content, "size_bytes": target_file.stat().st_size}
+        if is_github_url:
+            target_repo = _download_github_repository(repository_path, Path(temp_context.name))
+        else:
+            repo_candidate = Path(repository_path)
+            target_repo = ((project_root / repo_candidate).resolve() if not repo_candidate.is_absolute() else repo_candidate.resolve())
+            if not target_repo.is_relative_to(project_root):
+                raise HTTPException(status_code=403, detail="You can only explore repositories inside the project directory.")
+            if not target_repo.exists() or not target_repo.is_dir():
+                raise HTTPException(status_code=404, detail="Repository directory was not found.")
+
+        relative_file = Path(file_path)
+        target_file = (target_repo / relative_file).resolve()
+        if not target_file.is_relative_to(target_repo):
+            raise HTTPException(status_code=403, detail="The requested file is outside the repository.")
+        if not target_file.exists() or not target_file.is_file():
+            raise HTTPException(status_code=404, detail="File was not found in this repository.")
+
+        blocked_parts = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build"}
+        if any(part.lower() in blocked_parts for part in target_file.relative_to(target_repo).parts):
+            raise HTTPException(status_code=403, detail="Files in generated or dependency directories cannot be opened.")
+        if target_file.name.lower().startswith(".env") or target_file.name.lower() in {"id_rsa", "id_ed25519"} or target_file.suffix.lower() in {".pem", ".key", ".p12", ".pfx", ".db", ".sqlite", ".sqlite3", ".exe", ".dll", ".so", ".bin", ".pyc", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip"}:
+            raise HTTPException(status_code=403, detail="This file type is not available in the code viewer.")
+        if target_file.stat().st_size > 200_000:
+            raise HTTPException(status_code=413, detail="This file is too large to display (limit: 200 KB).")
+        try:
+            content = target_file.read_text(encoding="utf-8")
+        except UnicodeDecodeError as error:
+            raise HTTPException(status_code=415, detail="This is not a UTF-8 text file.") from error
+        except OSError as error:
+            raise HTTPException(status_code=500, detail="The file could not be read.") from error
+        return {"file_path": relative_file.as_posix(), "content": content, "size_bytes": target_file.stat().st_size}
+    finally:
+        if temp_context is not None:
+            temp_context.cleanup()
+
