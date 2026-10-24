@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 # Built-in names that should not typically be shadowed as variable names
 DANGEROUS_BUILTIN_SHADOWS: Set[str] = {
-    "list", "dict", "set", "str", "int", "id", "type",
-    "sum", "min", "max", "input", "format", "open", "file"
+"list", "dict", "set", "str", "int", "id", "type",
+"sum", "min", "max", "input", "format", "open",
 }
 
 
@@ -572,10 +572,7 @@ def analyze_repository_bugs(
 # =====================================================================
 
 def generate_bug_report_markdown(analysis_results: Dict[str, Any]) -> str:
-    """
-    Generates a structured, clean Markdown report of bug findings.
-    Used for the 'Download REPORT' button.
-    """
+    """Generate a structured Markdown report of bug findings."""
     repo_name = analysis_results.get("repository_name", "Python Project")
     health = analysis_results.get("health_score", 100)
     total_findings = analysis_results.get("total_findings", 0)
@@ -585,7 +582,7 @@ def generate_bug_report_markdown(analysis_results: Dict[str, Any]) -> str:
     findings = analysis_results.get("findings", [])
 
     lines = [
-        f"# RepoGuide — Code Quality & Bug Detection Report",
+        "# RepoGuide - Code Quality & Bug Detection Report",
         "",
         f"**Repository:** `{repo_name}`  ",
         f"**Code Health Score:** `{health}/100`  ",
@@ -594,47 +591,50 @@ def generate_bug_report_markdown(analysis_results: Dict[str, Any]) -> str:
         "",
         "## Severity Breakdown",
         "",
-        f"- 🔴 **Critical (Syntax Errors):** {breakdown.get('Critical', 0)}",
-        f"- 🟠 **High (Resource Leaks & Bare Except):** {breakdown.get('High', 0)}",
-        f"- 🟡 **Medium (Mutable Defaults & Swallowed Errors):** {breakdown.get('Medium', 0)}",
-        f"- 🔵 **Low / Code Style (PEP 8 & Builtins):** {breakdown.get('Low', 0)}",
+        f"- **Critical (Syntax Errors):** {breakdown.get('Critical', 0)}",
+        f"- **High (Resource Leaks & Bare Except):** {breakdown.get('High', 0)}",
+        f"- **Medium (Mutable Defaults & Swallowed Errors):** {breakdown.get('Medium', 0)}",
+        f"- **Low / Code Style (PEP 8 & Builtins):** {breakdown.get('Low', 0)}",
         "",
         "## Scoring System & Severity Guide",
         "",
         "| Severity | Penalty | Description | Patterns Detected |",
         "| :--- | :---: | :--- | :--- |",
-        "| 🔴 **Critical** | **-20 pts** | Confirmed compilation/syntax failure. Python cannot execute the file. | `SyntaxError` |",
-        "| 🟠 **High** | **-10 pts** | High risk of runtime crash or socket/file resource exhaustion. | `open()` without `with`, bare `except:` |",
-        "| 🟡 **Medium** | **-5 pts** | Silent bug traps and cross-call state pollution. | Mutable defaults (`[]`, `{}`), Swallowed errors (`except: pass`) |",
-        "| 🔵 **Low** | **-2 pts** | Code style, PEP 8 identity checks, and namespace hygiene. | `== None` vs `is None`, Shadowing built-in names (`list`, `dict`) |",
+        "| **Critical** | **-20 pts** | Confirmed compilation/syntax failure. Python cannot execute the file. | `SyntaxError` |",
+        "| **High** | **-10 pts** | High risk of runtime crash or socket/file resource exhaustion. | `open()` without `with`, bare `except:` |",
+        "| **Medium** | **-5 pts** | Silent bug traps and cross-call state pollution. | Mutable defaults (`[]`, `{}`), swallowed errors (`except: pass`) |",
+        "| **Low** | **-2 pts** | Code style, PEP 8 identity checks, and namespace hygiene. | `== None` vs `is None`, shadowing built-in names (`list`, `dict`) |",
         "",
         "---",
         "",
         "## Detailed Findings",
-        ""
+        "",
     ]
 
     if not findings:
-        lines.append("🎉 **No code-level bugs or anti-patterns detected! Clean code.**")
+        lines.append("**No code-level bugs or anti-patterns detected! Clean code.**")
     else:
+        severity_icons = {
+            "Critical": "[CRITICAL]",
+            "High": "[HIGH]",
+            "Medium": "[MEDIUM]",
+            "Low": "[LOW]",
+        }
+
         for idx, finding in enumerate(findings, 1):
-            sev_icon = {
-                "Critical": "🔴",
-                "High": "🟠",
-                "Medium": "🟡",
-                "Low": "🔵"
-            }.get(finding.get("severity"), "⚪")
+            severity = finding.get("severity", "Unknown")
+            sev_icon = severity_icons.get(severity, "[INFO]")
 
             lines.extend([
-                f"### {idx}. {sev_icon} [{finding.get('severity')}] {finding.get('title')}",
+                f"### {idx}. {sev_icon} [{severity}] {finding.get('title', 'Untitled finding')}",
                 "",
-                f"- **Location:** `{finding.get('file')}:{finding.get('line')}` (col {finding.get('column')})",
-                f"- **Category:** `{finding.get('category')}`",
+                f"- **Location:** `{finding.get('file', 'unknown')}:{finding.get('line', '?')}` (col {finding.get('column', '?')})",
+                f"- **Category:** `{finding.get('category', 'Uncategorized')}`",
                 f"- **Confirmed Error:** `{'No (Heuristic / Potential)' if finding.get('is_potential') else 'Yes (Compilation Error)'}`",
                 "",
                 "**Offending Code:**",
                 "```python",
-                finding.get("evidence", "# Evidence unavailable"),
+                finding.get("evidence") or "# Evidence unavailable",
                 "```",
                 "",
                 "**Explanation:**",
@@ -642,35 +642,35 @@ def generate_bug_report_markdown(analysis_results: Dict[str, Any]) -> str:
                 "",
             ])
 
-            if finding.get("proposed_fix"):
+            proposed_fix = finding.get("proposed_fix")
+            if proposed_fix:
                 lines.extend([
                     "**Proposed Fix:**",
                     "```python",
-                    finding.get("proposed_fix", ""),
+                    proposed_fix,
                     "```",
-                    ""
+                    "",
                 ])
 
-            lines.append("---")
-            lines.append("")
+            lines.extend(["---", ""])
 
     lines.extend([
         "## Recommended Next Steps",
         "",
         "1. Prioritize **Critical** syntax errors before running or testing.",
-        "2. Wrap all `open()` calls in `with` context managers to prevent socket/file descriptor exhaustion.",
+        "2. Wrap all `open()` calls in `with` context managers to prevent resource leaks.",
         "3. Replace mutable defaults (`[]`, `{}`) with `None` to prevent cross-call state leakage.",
         "4. Replace bare `except:` clauses with explicit exception types.",
         "",
-        "*Generated automatically by RepoGuide Bug-Detection Engine.*"
+        "*Generated automatically by RepoGuide Bug-Detection Engine.*",
     ])
 
     return "\n".join(lines)
 
 
-
 if __name__ == "__main__":
     import sys
+
     target = sys.argv[1] if len(sys.argv) > 1 else "."
     print(f"Scanning '{target}' for Python code bugs...")
     target_path = Path(target).resolve()

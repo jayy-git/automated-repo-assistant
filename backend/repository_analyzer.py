@@ -83,7 +83,9 @@ def parse_github_url(repo_url: str) -> Tuple[Optional[str], Optional[str], Optio
         return None, None, f"Invalid domain '{hostname}'. RepoGuide only supports public GitHub repositories (github.com)."
 
     # Extract path parts
-    path = parsed.path.strip("/").rstrip(".git")
+    path = parsed.path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
     parts = [p for p in path.split("/") if p]
 
     if len(parts) < 2:

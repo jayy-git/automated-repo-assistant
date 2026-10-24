@@ -2,7 +2,7 @@
 
 ## 1. Project Overview
 
-This repository contains **45 files** identified by RepoGuide's repository scanner.
+This repository contains **47 files** identified by RepoGuide's repository scanner.
 
 This document provides an initial overview of the repository, its technology stack, important files, and setup resources.
 
@@ -68,6 +68,8 @@ Project documentation
 - **starlette** — `==1.9.0`
 - **pwdlib** — `[argon2]==0.3.1`
 - **email-validator** — `==2.3.0`
+- **ruff** — `>=0.6,<1.0`
+- **radon** — `>=6.0,<7.0`
 
 ### JavaScript Dependencies
 
@@ -103,11 +105,12 @@ The following files provide a starting point for exploring the repository:
 This section identifies relationships between Python files based on their import statements.
 
 - `backend/bug_analyzer.py` imports `backend/repository_analyzer.py`
-- `backend/main.py` imports `backend/bug_analyzer.py`
-- `backend/main.py` imports `backend/repository_quality_analyzer.py`
 - `backend/onboarding_generator.py` imports `backend/documentation_validator.py`
 - `backend/onboarding_generator.py` imports `backend/repository_summary.py`
+- `backend/quality_checks.py` imports `backend/repository_analyzer.py`
 - `backend/repository_analyzer.py` imports `backend/organization_analyzer.py`
+- `backend/repository_qa.py` imports `backend/bug_analyzer.py`
+- `backend/repository_qa.py` imports `backend/repository_quality_analyzer.py`
 - `backend/repository_qa.py` imports `backend/repository_summary.py`
 - `backend/repository_quality_analyzer.py` imports `backend/quality_checks.py`
 - `backend/repository_quality_analyzer.py` imports `backend/repository_analyzer.py`
@@ -126,11 +129,12 @@ This section identifies relationships between Python files based on their import
 - `backend/test_organization_analyzer.py` imports `backend/organization_analyzer.py`
 - `backend/test_quality_checks.py` imports `backend/quality_checks.py`
 - `backend/test_repository_analyzer.py` imports `backend/repository_analyzer.py`
+- `backend/test_repository_qa.py` imports `backend/repository_qa.py`
 - `backend/test_repository_summary.py` imports `backend/repository_summary.py`
 - `backend/test_technology_detector.py` imports `backend/technology_detector.py`
 
-**Python files analyzed:** 26
-**Relationships detected:** 26
+**Python files analyzed:** 27
+**Relationships detected:** 28
 
 ## 7. Setup Guidance
 

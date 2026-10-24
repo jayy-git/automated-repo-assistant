@@ -21,17 +21,18 @@ def generate_repository_summary(repository_path):
     code_relationships = analyze_code_relationships(root)
     
 
-        # Build a simple overview of the repository structure.
+        # Build a simple overview of the repository structure. Store paths relative
+    # to each displayed top-level folder so output does not repeat "backend/".
     structure = {}
-
     for file in inventory["files"]:
-        parts = Path(file).parts
-
+        path = Path(file)
+        parts = path.parts
         if len(parts) == 1:
-            structure.setdefault("Root", []).append(file)
+            structure.setdefault("Root", []).append(path.name)
         else:
             folder = parts[0]
-            structure.setdefault(folder, []).append(file)
+            display_name = Path(*parts[1:]).as_posix()
+            structure.setdefault(folder, []).append(display_name)
 
     summary = {
     "repository_name": root.name,

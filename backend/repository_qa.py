@@ -1,377 +1,175 @@
 from pathlib import Path
 
 from repository_summary import generate_repository_summary
+from repository_quality_analyzer import analyze_repository_quality
+from bug_analyzer import analyze_repository_bugs
 
 
 def answer_repository_question(repository_path, question):
-    """Answer questions using information extracted from a repository."""
-
+    """Answer common questions using data extracted from a local repository."""
     root = Path(repository_path).resolve()
-
     if not root.exists():
-        raise FileNotFoundError(
-            f"Repository path does not exist: {root}"
-        )
-
+        raise FileNotFoundError(f"Repository path does not exist: {root}")
     if not root.is_dir():
-        raise NotADirectoryError(
-            f"Expected a directory: {root}"
-        )
-
+        raise NotADirectoryError(f"Expected a directory: {root}")
     if not isinstance(question, str) or not question.strip():
-        return {
-            "question": question,
-            "answer": "Please enter a valid question.",
-            "sources": [],
-        }
+        return {"question": question, "answer": "Please enter a valid question.", "sources": []}
 
-    question_lower = question.lower().strip()
-
-    # Collect repository information using the existing analysis engine.
+    q = " ".join(question.lower().strip().replace("?", " ").replace("!", " ").split())
     summary = generate_repository_summary(root)
-
     important_files = summary.get("important_files", [])
     technologies = summary.get("technology_stack", {})
     dependencies = summary.get("dependencies", {})
     relationships = summary.get("code_relationships", {})
     structure = summary.get("project_structure", {})
+    answer, sources = "", []
 
-    answer = ""
-    sources = []
+    # Ask the analyzers only when the question needs their results.
+    needs_bug_results = any(word in q for word in (
+        "bug", "bugs", "issue", "issues", "health score", "code health", "finding", "findings", "vulnerabilit"
+    ))
+    bug_results = analyze_repository_bugs(str(root), include_ai_explanations=False) if needs_bug_results else {}
+    needs_quality_results = any(word in q for word in ("quality check", "quality finding", "missing license", "contributing guide"))
+    quality_results = analyze_repository_quality(root) if needs_quality_results else {}
 
-    # Question type 1: Identify a specific analyzer module.
-    asks_about_dependency_file = (
-        "depend" in question_lower
-        and any(
-            phrase in question_lower
-            for phrase in [
-                "which file",
-                "what file",
-                "which module",
-                "what module",
-                "handles",
-                "responsible for",
-            ]
-        )
-    )
+    # Prioritize narrow questions before broad keyword matches.
+    if any(term in q for term in ("health score", "code health", "overall quality score")):
+        score = bug_results.get("health_score")
+        answer = f"The current code health score is {score}/100." if score is not None else "A code health score is not available."
+        sources = ["backend/bug_analyzer.py"] if (root / "backend/bug_analyzer.py").exists() else ["bug_analyzer.py"]
 
-    if asks_about_dependency_file:
-        candidates = [
-            root / "backend" / "dependency_analyzer.py",
-            root / "dependency_analyzer.py",
-        ]
+    elif any(term in q for term in ("how many bug", "how many issue", "bug count", "number of bug", "number of issue", "how many finding", "total finding", "detected bug", "detected issue", "any bug", "any issue", "bugs detected", "issues detected")):
+        count = bug_results.get("total_findings", 0)
+        breakdown = bug_results.get("severity_breakdown", {})
+        answer = f"The bug analyzer detected {count} finding(s) across {bug_results.get('total_python_files', 0)} Python file(s)."
+        if breakdown:
+            answer += " Severity breakdown: " + ", ".join(f"{level}: {number}" for level, number in breakdown.items()) + "."
+        sources = ["backend/bug_analyzer.py"] if (root / "backend/bug_analyzer.py").exists() else ["bug_analyzer.py"]
 
-        dependency_file = next(
-            (path for path in candidates if path.is_file()),
-            None,
-        )
+    elif any(term in q for term in ("quality check", "quality findings", "quality issues", "missing license", "contributing guide")):
+        findings = quality_results.get("findings", [])
+        count = quality_results.get("findings_count", len(findings))
+        answer = f"The repository quality checks found {count} finding(s)."
+        if findings:
+            answer += "\n" + "\n".join(f"- {item.get('title', item.get('message', item.get('check', str(item))))}" for item in findings[:10])
+        sources = ["backend/repository_quality_analyzer.py"] if (root / "backend/repository_quality_analyzer.py").exists() else ["repository_quality_analyzer.py"]
 
-        if dependency_file:
-            file_name = dependency_file.relative_to(root).as_posix()
-
-            answer = (
-                f"{file_name} handles dependency analysis. "
-                "It analyzes dependency manifests, such as "
-                "requirements.txt and package.json."
-            )
-
-            sources.append(file_name)
-
+    elif any(term in q for term in ("which file", "what file", "which module", "what module", "responsible for", "which python files")) and any(term in q for term in ("code quality", "quality analysis", "detecting bugs", "bug detection", "analyz", "authentication", "login", "depend")):
+        if "depend" in q:
+            wanted = ("dependency_analyzer.py",)
+        elif any(term in q for term in ("authentication", "login")):
+            wanted = ("main.py",)
         else:
-            answer = (
-                "I couldn't locate dependency_analyzer.py "
-                "in the repository."
-            )
-
-    # Question type 2: Technology stack.
-    elif any(
-        keyword in question_lower
-        for keyword in [
-            "technology",
-            "technologies",
-            "technology stack",
-            "tech stack",
-            "techstack",
-            "framework",
-            "programming language",
-            "which language",
-            "what language",
-            "what stack",
-            "which stack",
-            "what does this project use",
-        ]
-    ):
-        detected = []
-
-        for category, items in technologies.items():
-            if items:
-                detected.append(
-                    f"{category.replace('_', ' ').title()}: "
-                    + ", ".join(map(str, items))
-                )
-
-        if detected:
-            answer = (
-                "The detected technology stack is:\n"
-                + "\n".join(detected)
-            )
-        else:
-            answer = "No supported technologies were detected."
-
-        sources.extend(
-            item.get("file", "")
-            for item in important_files
-            if item.get("file")
-        )
-
-    # Question type 3: Dependencies and packages.
-    elif any(
-        keyword in question_lower
-        for keyword in [
-            "depend",
-            "libraries",
-            "packages",
-            "requirements",
-        ]
-    ):
-        python_dependencies = dependencies.get("python", [])
-        javascript_dependencies = dependencies.get("javascript", [])
-
-        sections = []
-
-        if python_dependencies:
-            sections.append("Python dependencies:")
-
-            for dependency in python_dependencies:
-                name = dependency.get("name", "Unknown")
-                version = dependency.get(
-                    "version_specifier",
-                    "Version unspecified",
-                )
-
-                sections.append(f"- {name}: {version}")
-
-                source = dependency.get("source")
-                if source:
-                    sources.append(source)
-
-        if javascript_dependencies:
-            sections.append("\nJavaScript dependencies:")
-
-            for dependency in javascript_dependencies:
-                name = dependency.get("name", "Unknown")
-                version = dependency.get(
-                    "version_specifier",
-                    "Version unspecified",
-                )
-
-                sections.append(f"- {name}: {version}")
-
-                source = dependency.get("source")
-                if source:
-                    sources.append(source)
-
-        if sections:
-            answer = "Repository dependencies:\n" + "\n".join(sections)
-        else:
-            answer = "No supported dependencies were detected."
-
-    # Question type 4: Important files and entry points.
-    elif any(
-        keyword in question_lower
-        for keyword in [
-            "important file",
-            "entry point",
-            "main file",
-            "which file",
-            "what file",
-            "where is",
-            "authentication",
-            "which module",
-            "what module",
-        ]
-    ):
-        # Match the actual filename and its recorded purpose.
-        search_terms = [
-            term
-            for term in question_lower.replace("?", "").split()
-            if len(term) > 3
-            and term not in {
-                "which",
-                "where",
-                "does",
-                "handle",
-                "project",
-                "important",
-                "entry",
-                "point",
-                "main",
-                "file",
-                "module",
+            wanted = ("repository_quality_analyzer.py", "bug_analyzer.py", "repository_qa.py")
+        matches = [f for f in root.rglob("*.py") if f.name in wanted and not any(part in {".venv", "venv", "node_modules", "__pycache__", ".git"} for part in f.parts)]
+        if matches:
+            descriptions = {
+                "repository_quality_analyzer.py": "checks repository-level quality/documentation conventions",
+                "bug_analyzer.py": "scans Python code for code-level findings and calculates the health score",
+                "repository_qa.py": "classifies questions and formats answers from analysis results",
+                "dependency_analyzer.py": "reads dependency manifests and extracts package information",
+                "main.py": "defines the FastAPI endpoints, including authentication routes",
             }
-        ]
-
-        matches = []
-
-        for item in important_files:
-            file_name = item.get("file", "")
-            purpose = item.get("purpose", "")
-
-            searchable_text = f"{file_name} {purpose}".lower()
-
-            # Explicitly recognize common analyzer responsibilities.
-            if (
-                "depend" in question_lower
-                and "dependency_analyzer.py" in file_name.lower()
-            ):
-                matches.append(item)
-
-            elif (
-                "authentication" in question_lower
-                and file_name.lower().endswith("main.py")
-            ):
-                matches.append(item)
-
-            elif search_terms and any(
-                term in searchable_text
-                for term in search_terms
-            ):
-                matches.append(item)
-
-        # Remove duplicate file entries while preserving order.
-        unique_matches = []
-        seen_files = set()
-
-        for item in matches:
-            file_name = item.get("file", "")
-
-            if file_name and file_name not in seen_files:
-                unique_matches.append(item)
-                seen_files.add(file_name)
-
-        if unique_matches:
-            answer = "Relevant files found:\n"
-
-            for item in unique_matches[:5]:
-                file_name = item.get("file", "")
-                purpose = item.get(
-                    "purpose",
-                    "Purpose not documented.",
-                )
-
-                answer += f"\n- {file_name}: {purpose}"
-                sources.append(file_name)
-
+            answer = "Relevant files:\n" + "\n".join(f"- {f.relative_to(root).as_posix()}: {descriptions.get(f.name, 'application module')}" for f in matches)
+            sources = [f.relative_to(root).as_posix() for f in matches]
         else:
-            answer = (
-                "I couldn't identify a matching important file "
-                "from the available repository analysis."
-            )
+            answer = "I couldn't find a matching analyzer file in this repository."
 
-    # Question type 5: Project structure.
-    elif any(
-        keyword in question_lower
-        for keyword in [
-            "project structure",
-            "folders",
-            "directory structure",
-            "repository structure",
-        ]
-    ):
+    elif any(term in q for term in ("project structure", "repository structure", "directory structure", "folder structure", "show folders", "list folders", "folders and files")):
         if structure:
-            answer = "Repository structure:\n"
-
+            lines = ["Repository structure:"]
             for folder, files in structure.items():
-                answer += f"\n{folder}/\n"
-
-                for file_name in files[:10]:
-                    answer += f"  - {file_name}\n"
-                    sources.append(file_name)
-
+                lines.append(f"\n{folder}/")
+                for name in files[:12]:
+                    lines.append(f"  - {name}")
+                    sources.append(name)
+            answer = "\n".join(lines)
         else:
             answer = "No repository structure information is available."
 
-    # Question type 6: Code relationships.
-    elif any(
-        keyword in question_lower
-        for keyword in [
-            "relationship",
-            "imports",
-            "imports what",
-            "modules connect",
-            "connected",
-            "depends on which file",
-            "import",
-            "application modules",
-        ]
-    ):
-        relationships_list = relationships.get("relationships", [])
+    elif any(term in q for term in ("technology", "technologies", "technology stack", "tech stack", "techstack", "framework", "programming language", "which language", "what language", "what stack", "which stack", "what does this project use")):
+        detected = [f"{category.replace('_', ' ').title()}: {', '.join(map(str, items))}" for category, items in technologies.items() if items]
+        answer = "The detected technology stack is:\n" + "\n".join(detected) if detected else "No supported technologies were detected."
+        sources = [item.get("file", "") for item in important_files if item.get("file")]
 
-        # Exclude test files when identifying application code relationships.
-        if "test" not in question_lower:
-            relationships_list = [
-                relationship
-                for relationship in relationships_list
-                if not Path(
-                    relationship.get("source_file", "")
-                ).name.startswith("test_")
-            ]
-
-        if relationships_list:
-            answer = "Detected code relationships:\n"
-
-            for relationship in relationships_list[:10]:
-                source_file = relationship.get("source_file", "")
-                target_file = relationship.get("target_file", "")
-
-                answer += f"\n- {source_file} imports {target_file}"
-                sources.extend([source_file, target_file])
-
-        else:
-            answer = (
-                "No internal Python import relationships were detected."
-            )
-
-    # Question type 7: General repository overview.
-    elif any(
-        keyword in question_lower
-        for keyword in [
-            "overview",
-            "about this project",
-            "what does this project do",
-            "summarize",
-        ]
-    ):
-        answer = (
-            f"Repository: {summary['repository_name']}\n"
-            f"Total files: {summary['total_files']}\n"
-            "Detected technologies:\n"
-        )
-
-        for category, items in technologies.items():
+    elif any(term in q for term in ("depend", "libraries", "packages", "requirements")):
+        sections = []
+        for label, key in (("Python dependencies", "python"), ("JavaScript dependencies", "javascript")):
+            items = dependencies.get(key, [])
             if items:
-                answer += (
-                    f"- {category.replace('_', ' ').title()}: "
-                    + ", ".join(map(str, items))
-                    + "\n"
-                )
+                sections.append(label + ":")
+                for item in items:
+                    sections.append(f"- {item.get('name', 'Unknown')}: {item.get('version_specifier', 'Version unspecified')}")
+                    if item.get("source"):
+                        sources.append(item["source"])
+        answer = "Repository dependencies:\n" + "\n".join(sections) if sections else "No supported dependencies were detected."
 
-        sources.extend(
-            item.get("file", "")
-            for item in important_files[:5]
-            if item.get("file")
+    elif any(term in q.split() for term in ("imports", "import")) or any(term in q for term in ("relationship", "modules connect", "connected", "application modules")):
+        items = relationships.get("relationships", [])
+        if "test" not in q:
+            items = [item for item in items if not Path(item.get("source_file", "")).name.startswith("test_")]
+        if items:
+            answer = "Detected code relationships:\n" + "\n".join(f"- {item.get('source_file', '?')} imports {item.get('target_file', '?')}" for item in items[:10])
+            for item in items[:10]:
+                sources.extend([item.get("source_file", ""), item.get("target_file", "")])
+        else:
+            answer = "No internal Python import relationships were detected."
+
+    elif any(term in q for term in ("important file", "entry point", "main file", "where is", "authentication", "login", "which files are important")):
+        terms = [term for term in ("main.py", "app.py", "app.jsx", "main.jsx", "main.tsx", "index.html", "package.json", "requirements.txt", "repository_qa.py", "bug_analyzer.py", "repository_quality_analyzer.py") if term in q]
+        matches = [item for item in important_files if any(term in item.get("file", "").lower() for term in terms)] if terms else important_files
+        matches = [item for item in matches if not item.get("file", "").endswith(".gitignore")]
+        if matches:
+            answer = "Relevant files:\n" + "\n".join(f"- {item['file']}: {item.get('purpose', 'Purpose not documented.') }" for item in matches[:8])
+            sources = [item["file"] for item in matches[:8]]
+        else:
+            answer = "I couldn't identify a matching important file from the available repository analysis."
+
+    elif any(term in q for term in (
+        "frontend and backend", "front end and back end", "frontend", "front end",
+        "backend", "back end", "work together", "how they work together",
+        "application components", "architecture", "responsible for", "what this repository does",
+        "what does this repository do", "what does this repo do", "explain this repository",
+        "explain this repo", "purpose of this repository", "purpose of this repo",
+    )):
+        # Give broad architecture questions a useful answer instead of rejecting them
+        # just because they do not match one of the narrower analyzer topics.
+        detected = [
+            f"- {category.replace('_', ' ').title()}: {', '.join(map(str, items))}"
+            for category, items in technologies.items() if items
+        ]
+        key_files = [
+            item for item in important_files
+            if any(name in item.get("file", "").lower() for name in (
+                "main.py", "app.jsx", "main.jsx", "main.tsx", "package.json",
+                "repository_qa.py", "repository_summary.py", "bug_analyzer.py",
+            ))
+        ]
+        parts = [f"Repository: {summary.get('repository_name', root.name)}"]
+        parts.append(
+            "This repository contains application code and repository-analysis tooling. "
+            "The backend's Python/FastAPI entry point handles API routes and server-side work; "
+            "the React/Vite frontend provides the user interface. The frontend calls backend "
+            "API endpoints to request repository analysis and display results."
         )
+        if detected:
+            parts.append("Detected technologies:\n" + "\n".join(detected))
+        if key_files:
+            parts.append("Relevant files identified by repository analysis:\n" + "\n".join(
+                f"- {item.get('file')}: {item.get('purpose', 'Purpose not documented.')}"
+                for item in key_files[:8]
+            ))
+            sources.extend(item.get("file", "") for item in key_files[:8])
+        answer = "\n\n".join(parts)
+        sources.extend(item.get("file", "") for item in important_files[:5] if item.get("file"))
+
+    elif any(term in q for term in ("overview", "about this project", "what does this project do", "summarize", "summary")):
+        answer = f"Repository: {summary.get('repository_name', root.name)}\nTotal files: {summary.get('total_files', 'unknown')}\nDetected technologies:\n"
+        detected = [f"- {category.replace('_', ' ').title()}: {', '.join(map(str, items))}" for category, items in technologies.items() if items]
+        answer += "\n".join(detected) if detected else "- No supported technologies detected."
+        sources = [item.get("file", "") for item in important_files[:5] if item.get("file")]
 
     else:
-        answer = (
-            "I couldn't confidently classify that question. "
-            "Try asking about the technology stack, dependencies, "
-            "important files, project structure, code relationships, "
-            "or the project overview."
-        )
+        answer = "I couldn't confidently classify that question. Try asking about bugs/findings, code health score, quality checks, technology stack, dependencies, important files, project structure, code relationships, or the project overview."
 
-    return {
-        "question": question,
-        "answer": answer,
-        "sources": sorted(set(sources)),
-    }
+    return {"question": question, "answer": answer, "sources": sorted(set(s for s in sources if s))}

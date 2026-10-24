@@ -137,6 +137,17 @@ class TestBugAnalyzer(unittest.TestCase):
         self.assertIn("Variable shadows built-in 'list'", titles)
         self.assertIn("Variable shadows built-in 'dict'", titles)
 
+    def test_file_variable_is_not_builtin_shadowing(self):
+        code = (
+            "def read_data(path):\n"
+            "    file = open(path, 'r')\n"
+            "    return file.read()\n"
+        )
+        res = analyze_python_code(code, filename="read_data.py")
+        titles = [f["title"] for f in res["findings"]]
+
+        self.assertNotIn("Variable shadows built-in 'file'", titles)
+
     def test_code_health_score_calculation(self):
         clean_score = calculate_code_health_score([], 5)
         self.assertEqual(clean_score, 100)
@@ -182,7 +193,7 @@ class TestBugAnalyzer(unittest.TestCase):
             }]
         }
         report = generate_bug_report_markdown(mock_results)
-        self.assertIn("# RepoGuide — Code Quality & Bug Detection Report", report)
+        self.assertIn("# RepoGuide - Code Quality & Bug Detection Report", report)
         self.assertIn("DemoRepo", report)
         self.assertIn("85/100", report)
         self.assertIn("utils.py:10", report)
